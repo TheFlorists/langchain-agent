@@ -1,10 +1,10 @@
 import datetime as dt
 import os
+import requests
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
-
 
 import os.path
 SCOPES = ['https://www.googleapis.com/auth/drive']
@@ -60,13 +60,41 @@ def doc_content(message, id):
         result = doc_service.documents().batchUpdate(documentId=id, body={'requests': requests}).execute()
         return result
 
+def doc_download(id, saved_folder, title):
+    if os.path.exists('token.json'):
+        creds = Credentials.from_authorized_user_file('token.json', [SCOPES, 'https://www.googleapis.com/auth/documents'])
+
+        export_url = f"https://www.googleapis.com/drive/v3/files/{id}/export?mimeType=application/pdf"
+       
+        headers = {"Authorization": f"Bearer {creds.token}"}
+    response = requests.get(export_url, headers=headers)
+
+    if response.status_code != 200:
+        print(f"Error: Unable to download document (status code {response.status_code})")
+        return
+
+    # Checks if folder exists, create if not
+    if not os.path.exists(saved_folder):
+        os.makedirs(saved_folder)
+
+    # File name
+    file_name = os.path.join(saved_folder, f"{title}.pdf")
+
+    with open(file_name, "wb") as pdf_file:
+        pdf_file.write(response.content)
+
+    print(f"Document successfully downloaded as {file_name}")
+
 def main():
     authorize()
     title = 'Test document'
     message = 'This is a test message'
     id = doc_id(title)
     doc_content(message, id)
-    
+
+
+    saved_folder = "downloads" # Change this folder for specific download location
+    doc_download(id, saved_folder, title) 
 
 if __name__ == '__main__':
     main()
