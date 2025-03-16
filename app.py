@@ -4,6 +4,7 @@ import os
 from typing import List
 from pydantic import BaseModel
 from google import genai
+from google.genai import types
 
 app = FastAPI()
 load_dotenv()
@@ -44,11 +45,31 @@ async def chat(chat_request: ChatRequest):
 
     client = genai.Client(api_key=GEMINI_API_KEY)
 
+    # set up tools
+    config = types.GenerateContentConfig(
+        tools=[
+            say_hello_world,
+        ])
+
     try:
         response = client.models.generate_content(
             model="gemini-2.0-flash",
-            contents=formatted_history)
+            contents=formatted_history,
+            config=config)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error calling Gemini API: {str(e)}")
 
     return {"message": response.text}
+
+
+def say_hello_world():
+    """Say hello world back to the user if the user asks for it
+
+    Args:
+        no args
+
+    Returns:
+        a string saying hello world
+    """
+    return 'hello world tool call TEST'
+
