@@ -51,5 +51,4 @@ async def chat(chat_request: ChatRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error calling Gemini API: {str(e)}")
 
-    # Return the assistant's reply.
     return {"message": response.text}
