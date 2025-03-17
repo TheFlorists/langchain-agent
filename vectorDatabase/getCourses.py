@@ -1,23 +1,16 @@
-# Import the Canvas class
 from canvasapi import Canvas
 from dotenv import load_dotenv
 import os
 import json
-load_dotenv("secrets.env")
 
-# Canvas API URL
-API_URL = "https://canvas.instructure.com/"
-API_KEY = os.getenv("CANVAS_API_KEY")
-
-# Initialize a new Canvas object
-canvas = Canvas(API_URL, API_KEY)
-
-try:
+def get_all_courses(canvas):
+    """Get all courses for the current user"""
     user = canvas.get_user('self')
     print(f"logged in as: {user.name}")
 
     courses = list(user.get_courses(completed=False))
     dict_courses = []
+    
     for course in courses:
         course_dict = {}
         for key, value in course.__dict__.items():
@@ -35,19 +28,24 @@ try:
                 pass
         dict_courses.append(course_dict)
     
-    print(f"Found {len(dict_courses)} courses")
+    print(f"Found {len(dict_courses)} total courses")
+    return dict_courses
 
-    with open("courses.json", "w") as f:
-        json.dump(dict_courses, f, indent=2)
-
-    for course in dict_courses:
+def get_current_courses(courses):
+    """Filter and return current courses for WN 2025"""
+    current_courses = []
+    for course in courses:
         if "access_restricted_by_date" in course and course["access_restricted_by_date"]:
             continue
         # print(f"{course['name']}", end=" ")
-        course = course['name'].split(" ")
-        course_name, course_misc, course_term = course[:2], course[2:-2], course[-2:]
+        _course = course['name'].split(" ")
+        course_name, course_misc, course_term = _course[:2], _course[2:-2], _course[-2:]
+        if ' '.join(course_term) == "WN 2025":
+            current_courses.append(course)
+            print(f"{course_name} {course_term}")
+    return current_courses
 
-        print(f"{course_name} {course_term}")
-
-except Exception as e:
-    print(f"Error: {str(e)}")
+def save_courses_to_json(courses, filename):
+    """Save courses to a JSON file"""
+    with open(filename, "w") as f:
+        json.dump(courses, f, indent=2)
