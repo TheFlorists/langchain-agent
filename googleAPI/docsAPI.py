@@ -6,99 +6,116 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-import os.path
-SCOPES = ['https://www.googleapis.com/auth/drive']
+SCOPES = [
+    'https://www.googleapis.com/auth/drive',
+    'https://www.googleapis.com/auth/documents'
+]
+
+TOKEN_PATH = "googleAPI/token.json"
+CREDENTIALS_PATH = "googleAPI/credentials.json"
 
 def authorize():
+    """Handles Google API authorization and token refresh."""
     creds = None
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+
+    if os.path.exists(TOKEN_PATH):
+        creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
+
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', SCOPES)
+            if not os.path.exists(CREDENTIALS_PATH):
+                raise FileNotFoundError(f"Missing credentials file: {CREDENTIALS_PATH}")
+
+            flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_PATH, SCOPES)
             creds = flow.run_local_server(port=0)
-        with open('token.json', 'w') as token:
+
+        with open(TOKEN_PATH, "w") as token:
             token.write(creds.to_json())
+
     return creds
-   
-def doc_id(title):
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', [SCOPES, 'https://www.googleapis.com/auth/documents'])
-        
-        drive_service = build('drive', 'v3', credentials=creds)
 
-        doc_metadata = {
-            'name': title,
-            'mimeType': 'application/vnd.google-apps.document'
-        }
-        drive_service = build('drive', 'v3', credentials=creds)
-        doc = drive_service.files().create(body=doc_metadata).execute()
-        id = doc['id']
-        return id
+def create_google_doc(title):
+    """Creates a new Google Document and returns its ID."""
+    creds = authorize()
+    drive_service = build("drive", "v3", credentials=creds)
 
-def doc_content(message, id):
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', [SCOPES, 'https://www.googleapis.com/auth/documents'])
-        
-        doc_service = build('docs', 'v1', credentials=creds)
+    doc_metadata = {
+        "name": title,
+        "mimeType": "application/vnd.google-apps.document"
+    }
+    doc = drive_service.files().create(body=doc_metadata).execute()
+    doc_id = doc.get("id")
 
-        time = dt.datetime.now()
-        time = time.time()
-        requests = [
-            {
-                'insertText': {
-                    'location': {
-                        'index': 1,
-                    },
-                    'text': f"{time} - {message}\n"
-                }
+    if not doc_id:
+        raise Exception("Failed to create Google Doc. No document ID returned.")
+    return doc_id
+
+def update_doc_content(doc_id, message):
+    """Appends timestamp and message to the end of a Google Doc, ensuring no unwanted text is added."""
+    creds = authorize()
+    doc_service = build("docs", "v1", credentials=creds)
+
+    timestamp = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    text_to_insert = f"{timestamp} - {message}\n"
+
+    requests = [
+        {
+            "insertText": {
+                "location": {"index": 1},
+                "text": text_to_insert
             }
-        ]
-        result = doc_service.documents().batchUpdate(documentId=id, body={'requests': requests}).execute()
-        
-        doc_link = f"https://docs.google.com/document/d/{id}"
-        print(f"Document created: {doc_link}")
-        
-        return result
+        }
+    ]
 
-def doc_download(id, saved_folder, title):
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', [SCOPES, 'https://www.googleapis.com/auth/documents'])
+    doc_service.documents().batchUpdate(documentId=doc_id, body={"requests": requests}).execute()
+    doc_url = f"https://docs.google.com/document/d/{doc_id}"
+    return {"message": "Content updated", "doc_url": doc_url}
 
-        export_url = f"https://www.googleapis.com/drive/v3/files/{id}/export?mimeType=application/pdf"
-       
-        headers = {"Authorization": f"Bearer {creds.token}"}
+def download_doc_as_pdf(doc_id, saved_folder, title):
+    """Downloads a Google Doc as a PDF."""
+    creds = authorize()
+    
+    export_url = f"https://www.googleapis.com/drive/v3/files/{doc_id}/export?mimeType=application/pdf"
+    headers = {"Authorization": f"Bearer {creds.token}"}
+
     response = requests.get(export_url, headers=headers)
 
     if response.status_code != 200:
         print(f"Error: Unable to download document (status code {response.status_code})")
-        return
+        return None
 
-    # Checks if folder exists, create if not
-    if not os.path.exists(saved_folder):
-        os.makedirs(saved_folder)
+    os.makedirs(saved_folder, exist_ok=True)
 
-    # File name
-    file_name = os.path.join(saved_folder, f"{title}.pdf")
-
-    with open(file_name, "wb") as pdf_file:
+    file_path = os.path.join(saved_folder, f"{title}.pdf")
+    with open(file_path, "wb") as pdf_file:
         pdf_file.write(response.content)
 
-    print(f"{title}.pdf successfully downloaded")
+    print(f"Downloaded PDF: {file_path}")
+    return {"message": file_path}
 
-def main():
+cached_doc_id = None
+
+def google_docs_tool(input_text: str, create_only: bool, download: bool):
+    global cached_doc_id
     authorize()
-    title = 'Test document'
-    message = 'This is a test message'
-    id = doc_id(title)
-    doc_content(message, id)
+    title = "Chat Conversation"
 
+    is_new_doc = False
 
-    saved_folder = "downloads" # Change this folder for specific download location
-    doc_download(id, saved_folder, title) 
+    if cached_doc_id is None or create_only:
+        cached_doc_id = create_google_doc(title)
+        is_new_doc = True
 
-if __name__ == '__main__':
-    main()
+    if is_new_doc:
+        update_doc_content(cached_doc_id, input_text)
+
+    doc_url = f"https://docs.google.com/document/d/{cached_doc_id}"
+
+    download_info = None
+    if download:
+        saved_folder = "downloads"
+        download_info = download_doc_as_pdf(cached_doc_id, saved_folder, title)
+
+    return {"google_doc_url": doc_url, "download_info": download_info}
