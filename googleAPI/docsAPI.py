@@ -58,6 +58,10 @@ def doc_content(message, id):
             }
         ]
         result = doc_service.documents().batchUpdate(documentId=id, body={'requests': requests}).execute()
+        
+        doc_link = f"https://docs.google.com/document/d/{id}"
+        print(f"Document created: {doc_link}")
+        
         return result
 
 def doc_download(id, saved_folder, title):
@@ -83,7 +87,7 @@ def doc_download(id, saved_folder, title):
     with open(file_name, "wb") as pdf_file:
         pdf_file.write(response.content)
 
-    print(f"Document successfully downloaded as {file_name}")
+    print(f"{title}.pdf successfully downloaded")
 
 def main():
     authorize()
