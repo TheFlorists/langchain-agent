@@ -79,7 +79,7 @@ async def chat(chat_request: ChatRequest):
             doc_result = docsAPI.google_docs_tool(
                 input_text=response_text,
                 create_only=chat_request.create_google_doc,
-                download=chat_request.save_doc
+                save_doc=chat_request.save_doc
             )
             doc_url = doc_result["google_doc_url"]
             download_info = doc_result["download_info"]

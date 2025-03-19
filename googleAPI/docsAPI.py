@@ -1,6 +1,7 @@
 import datetime as dt
 import os
 import requests
+import time
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -82,22 +83,17 @@ def download_doc_as_pdf(doc_id, saved_folder, title):
 
     response = requests.get(export_url, headers=headers)
 
-    if response.status_code != 200:
-        print(f"Error: Unable to download document (status code {response.status_code})")
-        return None
-
     os.makedirs(saved_folder, exist_ok=True)
 
     file_path = os.path.join(saved_folder, f"{title}.pdf")
     with open(file_path, "wb") as pdf_file:
         pdf_file.write(response.content)
 
-    print(f"Downloaded PDF: {file_path}")
-    return {"message": file_path}
+    return {"file_path": file_path}
 
 cached_doc_id = None
 
-def google_docs_tool(input_text: str, create_only: bool, download: bool):
+def google_docs_tool(input_text: str, create_only: bool, save_doc: bool):
     global cached_doc_id
     authorize()
     title = "Chat Conversation"
@@ -114,7 +110,7 @@ def google_docs_tool(input_text: str, create_only: bool, download: bool):
     doc_url = f"https://docs.google.com/document/d/{cached_doc_id}"
 
     download_info = None
-    if download:
+    if save_doc:
         saved_folder = "downloads"
         download_info = download_doc_as_pdf(cached_doc_id, saved_folder, title)
 
