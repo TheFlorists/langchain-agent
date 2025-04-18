@@ -171,3 +171,5 @@ cython_debug/
 .pypirc
 
 service_account_key.json
+canvas.json
+client_secret*

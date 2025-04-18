@@ -83,6 +83,45 @@ def say_hello_world():
     """
     return "hello world tool call TEST"
 
+def read_calendar_events(
+    user_token: str,
+    time_min: Optional[str] = None,
+    time_max: Optional[str] = None,
+    max_results: int = 10,
+) -> str:
+    """Fetch upcoming events from the user's primary calendar."""
+    if not user_token:
+        return "Error: A user OAuth token is required to read calendar events."
+
+    # Build credentials & service
+    creds = Credentials(user_token)
+    service = build("calendar", "v3", credentials=creds)
+
+    # Default to now if no time_min provided
+    now_iso = datetime.utcnow().isoformat() + 'Z'
+    events_result = (
+        service.events()
+               .list(
+                   calendarId='primary',
+                   timeMin=time_min or now_iso,
+                   timeMax=time_max,
+                   maxResults=max_results,
+                   singleEvents=True,
+                   orderBy='startTime',
+               )
+               .execute()
+    )
+    items = events_result.get('items', [])
+    if not items:
+        return "No upcoming events found."
+
+    # Format a simple text list
+    lines = []
+    for ev in items:
+        start = ev['start'].get('dateTime', ev['start'].get('date'))
+        lines.append(f"- {start}: {ev.get('summary', '(no title)')}")
+    return "Here are your upcoming events:\n" + "\n".join(lines)
+
 def create_calendar_event(
     summary: str,
     start_time: str,
@@ -223,45 +262,55 @@ async def chat(chat_request: ChatRequest):
                         "parameters": {
                             "type": "object",
                             "properties": {
-                                "title": {
-                                    "type": "string",
-                                    "description": "Title of the event"
-                                },
-                                "start_time": {
-                                    "type": "string", 
-                                    "description": "Start time in ISO format (YYYY-MM-DDTHH:MM:SS)"
-                                },
-                                "end_time": {
-                                    "type": "string",
-                                    "description": "End time in ISO format (YYYY-MM-DDTHH:MM:SS)"
-                                },
-                                "description": {
-                                    "type": "string",
-                                    "description": "Optional description for the event"
-                                },
-                                "location": {
-                                    "type": "string",
-                                    "description": "Optional location for the event"
-                                },
+                                "title":       { "type": "string" },
+                                "start_time":  { "type": "string" },
+                                "end_time":    { "type": "string" },
+                                "description": {"type": "string"},
+                                "location":    {"type": "string"},
                                 "attendees": {
                                     "type": "array",
-                                    "items": {"type": "string"},
-                                    "description": "Optional list of email addresses for attendees"
+                                    "items": { "type": "string" }
                                 }
                             },
                             "required": ["title", "start_time", "end_time"]
                         }
                     },
                     {
+                        "name": "read_calendar_events",
+                        "description": "List upcoming events from the user's Google Calendar",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "user_token": {
+                                    "type": "string",
+                                    "description": "OAuth token for the user"
+                                },
+                                "time_min": {
+                                    "type": "string",
+                                    "description": "ISO datetime (inclusive) to start listing from"
+                                },
+                                "time_max": {
+                                    "type": "string",
+                                    "description": "ISO datetime (exclusive) to stop listing at"
+                                },
+                                "max_results": {
+                                    "type": "integer",
+                                    "description": "Maximum number of events to return"
+                                }
+                            },
+                            "required": ["user_token"]
+                        }
+                    },
+                    {
                         "name": "say_hello_world",
                         "description": "Say hello world back to the user if the user asks for it",
-                        "parameters": {"type": "object", "properties": {}}
+                        "parameters": { "type": "object", "properties": {} }
                     }
                 ]
             }
         ]
     )
-    
+
     try:
         response = client.models.generate_content(
             model="gemini-2.0-flash",
@@ -295,10 +344,22 @@ async def chat(chat_request: ChatRequest):
                                     attendees=args.get("attendees"),
                                     user_token=chat_request.user_token
                                 )
-                                
+
                                 # Return result with the model's response
                                 return {"message": f"{response.text}\n\nCalendar Result: {result}"}
-                            
+
+                            elif function_call.name == "read_calendar_events":
+                                args = function_call.args
+                                if isinstance(args, str):
+                                    args = json.loads(args)
+                                result = read_calendar_events(
+                                    user_token=args.get("user_token"),
+                                    time_min=args.get("time_min"),
+                                    time_max=args.get("time_max"),
+                                    max_results=args.get("max_results", 10),
+                                )
+                                return {"message": f"{response.text}\n\nCalendar Read Result:\n{result}"}
+
                             elif function_call.name == "say_hello_world":
                                 result = say_hello_world()
                                 return {"message": f"{response.text}\n\nTool Result: {result}"}
