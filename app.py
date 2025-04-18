@@ -1,5 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import OAuth2AuthorizationCodeBearer
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import OAuth2AuthorizationCodeBearer
 from dotenv import load_dotenv
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
@@ -19,7 +21,11 @@ app = FastAPI()
 load_dotenv()
 
 # API Keys and credentials
+# API Keys and credentials
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+REDIRECT_URI = os.getenv("REDIRECT_URI", "http://localhost:8000/auth/callback")
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("REDIRECT_URI", "http://localhost:8000/auth/callback")
@@ -29,12 +35,20 @@ oauth2_scheme = OAuth2AuthorizationCodeBearer(
     authorizationUrl="https://accounts.google.com/o/oauth2/auth",
     tokenUrl="https://oauth2.googleapis.com/token",
 )
+# OAuth setup
+oauth2_scheme = OAuth2AuthorizationCodeBearer(
+    authorizationUrl="https://accounts.google.com/o/oauth2/auth",
+    tokenUrl="https://oauth2.googleapis.com/token",
+)
 
 # Gemini client
 genai_client = genai.Client(api_key=GEMINI_API_KEY)
+genai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Models
+# Models
 class ChatTurn(BaseModel):
+    role: str  # user OR assistant
     role: str  # user OR assistant
     content: str
 
@@ -92,6 +106,45 @@ def say_hello_world():
         a string saying hello world
     """
     return "hello world tool call TEST"
+
+def read_calendar_events(
+    user_token: str,
+    time_min: Optional[str] = None,
+    time_max: Optional[str] = None,
+    max_results: int = 10,
+) -> str:
+    """Fetch upcoming events from the user's primary calendar."""
+    if not user_token:
+        return "Error: A user OAuth token is required to read calendar events."
+
+    # Build credentials & service
+    creds = Credentials(user_token)
+    service = build("calendar", "v3", credentials=creds)
+
+    # Default to now if no time_min provided
+    now_iso = datetime.utcnow().isoformat() + 'Z'
+    events_result = (
+        service.events()
+               .list(
+                   calendarId='primary',
+                   timeMin=time_min or now_iso,
+                   timeMax=time_max,
+                   maxResults=max_results,
+                   singleEvents=True,
+                   orderBy='startTime',
+               )
+               .execute()
+    )
+    items = events_result.get('items', [])
+    if not items:
+        return "No upcoming events found."
+
+    # Format a simple text list
+    lines = []
+    for ev in items:
+        start = ev['start'].get('dateTime', ev['start'].get('date'))
+        lines.append(f"- {start}: {ev.get('summary', '(no title)')}")
+    return "Here are your upcoming events:\n" + "\n".join(lines)
 
 def create_calendar_event(
     summary: str,
@@ -266,7 +319,7 @@ async def auth_callback(code: str):
 async def chat(chat_request: ChatRequest):
     if not chat_request.history:
         raise HTTPException(status_code=400, detail="Chat history is empty.")
-
+    
     formatted_history = [format_message(turn) for turn in chat_request.history]
     client = genai.Client(api_key=GEMINI_API_KEY)
 
@@ -308,6 +361,32 @@ async def chat(chat_request: ChatRequest):
                                 }
                             },
                             "required": ["title", "start_time", "end_time"]
+                        }
+                    },
+                    {
+                        "name": "read_calendar_events",
+                        "description": "List upcoming events from the user's Google Calendar",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "user_token": {
+                                    "type": "string",
+                                    "description": "OAuth token for the user"
+                                },
+                                "time_min": {
+                                    "type": "string",
+                                    "description": "ISO datetime (inclusive) to start listing from"
+                                },
+                                "time_max": {
+                                    "type": "string",
+                                    "description": "ISO datetime (exclusive) to stop listing at"
+                                },
+                                "max_results": {
+                                    "type": "integer",
+                                    "description": "Maximum number of events to return"
+                                }
+                            },
+                            "required": ["user_token"]
                         }
                     },
                     {
@@ -370,6 +449,17 @@ async def chat(chat_request: ChatRequest):
 
                                 # Return result with the model's response
                                 return {"message": f"{response.text}\n\nCalendar Result: {result}"}
+                            elif function_call.name == "read_calendar_events":
+                                args = function_call.args
+                                if isinstance(args, str):
+                                    args = json.loads(args)
+                                result = read_calendar_events(
+                                    user_token=args.get("user_token"),
+                                    time_min=args.get("time_min"),
+                                    time_max=args.get("time_max"),
+                                    max_results=args.get("max_results", 10),
+                                )
+                                return {"message": f"{response.text}\n\nCalendar Read Result:\n{result}"}
                             elif function_call.name == "create_google_doc":
                                 args = function_call.args
                                 if isinstance(args, str):
